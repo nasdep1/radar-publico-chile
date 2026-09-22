@@ -1,0 +1,18 @@
+# Credenciales
+.env
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Sistema operativo
+.DS_Store
+
+# Datos locales (solo se versiona la carpeta)
+data/*
+!data/.gitkeep
