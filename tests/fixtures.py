@@ -31,7 +31,33 @@ DETAIL_RECORD = {
     "DireccionEntrega": "Plaza de Armas 1",
     "MontoEstimado": 15000000,
     "Adjudicacion": None,
-    "Items": {"Cantidad": 1, "Listado": [{"Correlativo": 1, "NombreProducto": "Cámara"}]},
+    "Items": {
+        "Cantidad": 2,
+        "Listado": [
+            {
+                "Correlativo": 1,
+                "CodigoProducto": 46171610,
+                "CodigoCategoria": "46171600",
+                "Categoria": "Equipos de seguridad y control / Cámaras de vigilancia",
+                "NombreProducto": "Cámaras de seguridad",
+                "Descripcion": "Cámara IP domo 4K",
+                "UnidadMedida": "Unidad",
+                "Cantidad": 20,
+                "Adjudicacion": None,
+            },
+            {
+                "Correlativo": 2,
+                "CodigoProducto": 46171611,
+                "CodigoCategoria": "46171600",
+                "Categoria": "Equipos de seguridad y control / Cámaras de vigilancia",
+                "NombreProducto": "Grabador de video en red",
+                "Descripcion": "NVR 32 canales",
+                "UnidadMedida": "Unidad",
+                "Cantidad": 1,
+                "Adjudicacion": None,
+            },
+        ],
+    },
 }
 
 

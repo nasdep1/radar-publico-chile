@@ -86,6 +86,16 @@ def licitacion_has_detail(codigo: str, db_path=None) -> bool:
     return row is not None
 
 
+def list_licitaciones(db_path=None, solo_con_detalle: bool = False) -> list:
+    """Todas las licitaciones guardadas, ordenadas por código."""
+    sql = "SELECT * FROM licitaciones"
+    if solo_con_detalle:
+        sql += " WHERE detalle_descargado = 1"
+    sql += " ORDER BY codigo_externo"
+    with connect(db_path) as conn:
+        return [dict(row) for row in conn.execute(sql).fetchall()]
+
+
 def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 

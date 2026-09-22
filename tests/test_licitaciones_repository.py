@@ -103,3 +103,15 @@ def test_search_by_text_es_parametrizado(db):
     assert len(repo.search_by_text("%", db_path=db)) == 1
     assert repo.search_by_text("'; DROP TABLE licitaciones; --", db_path=db) == []
     assert repo.count_licitaciones(db_path=db) == 2
+
+
+def test_list_licitaciones(db):
+    repo.upsert_licitaciones(
+        [
+            normalize_list_item({"CodigoExterno": "2-2-L1", "Nombre": "B"}),
+            normalize_detail(DETAIL_RECORD),
+        ],
+        db_path=db,
+    )
+    assert [r["codigo_externo"] for r in repo.list_licitaciones(db_path=db)] == ["1019-102-LE26", "2-2-L1"]
+    assert [r["codigo_externo"] for r in repo.list_licitaciones(db_path=db, solo_con_detalle=True)] == ["1019-102-LE26"]

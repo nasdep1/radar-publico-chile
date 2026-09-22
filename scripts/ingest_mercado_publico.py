@@ -25,6 +25,7 @@ from src.repositories import licitaciones_repository as repo  # noqa: E402
 from src.services.candidate_filter import filter_candidates  # noqa: E402
 from src.services.ingestion import download_details, fetch_listado  # noqa: E402
 from src.services.normalizer import describe_items  # noqa: E402
+from src.services.query_terms import terms_for_query  # noqa: E402
 from src.sources.mercado_publico import (  # noqa: E402
     MercadoPublicoClient,
     MercadoPublicoError,
@@ -33,37 +34,12 @@ from src.sources.mercado_publico import (  # noqa: E402
 
 SEPARADOR = "=" * 40
 
-# Expansión manual SOLO para el caso de prueba. No es un sistema general de
-# expansión semántica. Otras consultas se usan tal cual, como único término.
-EXPANSIONES_DE_PRUEBA = {
-    "seguridad municipal": [
-        "seguridad",
-        "seguridad municipal",
-        "seguridad comunal",
-        "prevencion del delito",
-        "prevención del delito",
-        "camara",
-        "cámara",
-        "camaras",
-        "cámaras",
-        "televigilancia",
-        "cctv",
-        "patrullaje",
-        "alarma",
-        "alarmas",
-    ],
-}
-
 
 def parse_date(value: str) -> date:
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         raise argparse.ArgumentTypeError(f"Fecha inválida: {value!r}. Usa YYYY-MM-DD.") from None
-
-
-def terms_for_query(query: str) -> list:
-    return EXPANSIONES_DE_PRUEBA.get(query.strip().lower(), [query])
 
 
 def relative(path: Path) -> str:

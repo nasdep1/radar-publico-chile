@@ -1,7 +1,7 @@
 # Radar Público Chile
 
-**Etapa actual (2):** normalización, caché local en SQLite y filtrado de
-licitaciones candidatas de Mercado Público.
+**Etapa actual (2.1):** normalización, caché local en SQLite, filtrado de
+licitaciones candidatas de Mercado Público y reporte para evaluarlas a mano.
 
 ## Arquitectura actual
 
@@ -130,6 +130,29 @@ Un error en una candidata se informa y no detiene las demás.
 La base `data/radar_publico.db` no se versiona: contiene datos descargados,
 incluidos los contactos de los responsables que publica la API.
 
+## Evaluación manual de candidatas
+
+```bash
+python scripts/evaluate_candidates.py --query "seguridad municipal"
+```
+
+Lee **solo** la base SQLite local (no llama a Mercado Público) y genera
+`data/evaluacion_seguridad_municipal.csv` con las candidatas que ya tienen
+detalle. La selección usa exactamente el mismo filtro por Nombre y los mismos
+términos que la ingesta (`src/services/query_terms.py`).
+
+El CSV incluye los datos principales de cada licitación y además:
+
+- `items_nombres` y `items_descripciones`: `NombreProducto` y `Descripcion` de
+  todos los ítems, separados por ` | `;
+- `categorias`: `Categoria` de los ítems, sin duplicados;
+- `terminos_coincidentes`: términos del filtro que aparecen en el Nombre;
+- `relevante_manual` y `observacion_manual`: vacías, para completarlas a mano.
+
+Está en UTF-8 con BOM, separado por comas, para que Excel y Numbers muestren bien
+las tildes. Si el CSV ya existe, el script no lo sobrescribe (podría tener
+evaluaciones manuales); usa `--sobrescribir` para reemplazarlo.
+
 ## Tests
 
 ```bash
@@ -148,9 +171,12 @@ src/sources/mercado_publico.py              MercadoPublicoClient (fecha, activas
 src/services/normalizer.py                  Normalización de listado y detalle; diagnóstico de Items.
 src/services/candidate_filter.py            Filtro de candidatas por palabras clave en el Nombre.
 src/services/ingestion.py                   Pasos de la ingesta: listado y detalle con caché.
+src/services/query_terms.py                 Términos de la consulta de prueba (compartidos).
+src/services/evaluation.py                  Reporte CSV de evaluación manual.
 src/repositories/licitaciones_repository.py Acceso a SQLite (queries parametrizadas, sin ORM).
 scripts/test_mercado_publico_api.py         Prueba de integración de la Etapa 1.
 scripts/ingest_mercado_publico.py           Ingesta de prueba de la Etapa 2.
+scripts/evaluate_candidates.py              Reporte de evaluación (solo lee SQLite).
 tests/                                      Tests con mocks y SQLite temporal.
 data/                                       Datos locales (no se versionan).
 ```
@@ -219,8 +245,10 @@ elemento de `Listado`, con estas claves:
 - `Comprador` incluye al menos `CodigoOrganismo` y `NombreOrganismo`.
 - `Fechas` incluye varias fechas: `FechaCreacion`, `FechaCierre`, `FechaInicio`,
   `FechaPublicacion`, `FechaAdjudicacion`, `FechaEstimadaAdjudicacion`, etc.
-- `Items`: **estructura pendiente de documentar**. La ingesta muestra su tipo,
-  sus claves y las claves del primer ítem.
+- `Items` (verificado): objeto con `Cantidad` y `Listado`. Cada elemento de
+  `Items.Listado` trae `Correlativo`, `CodigoProducto`, `CodigoCategoria`,
+  `Categoria`, `NombreProducto`, `Descripcion`, `UnidadMedida`, `Cantidad` y
+  `Adjudicacion`.
 
 **Diferencias**: el listado solo trae 4 campos (código, nombre, estado y fecha
 de cierre). Descripción, comprador, fechas, montos, ítems y adjudicación solo
