@@ -29,6 +29,13 @@ REQUEST_TIMEOUT = 30  # segundos
 # Esperas (segundos) antes de cada reintento ante HTTP 429. Solo se reintenta 429.
 RETRY_429_DELAYS = (3, 6, 12)
 
+# Pausa (segundos) antes de cada consulta de detalle durante la ingesta.
+# Las consultas son siempre secuenciales, nunca concurrentes.
+DETAIL_REQUEST_PAUSE = 3
+
+# Base de datos local (ignorada por Git).
+DATABASE_PATH = DATA_DIR / "radar_publico.db"
+
 MISSING_TICKET_MESSAGE = (
     "No se encontró MERCADOPUBLICO_TICKET. Crea el archivo .env a partir de "
     ".env.example e incorpora tu ticket personal."
