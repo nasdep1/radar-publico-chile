@@ -5,12 +5,14 @@ Uso (desde la raíz del proyecto):
 
 Consumo máximo de la API: hasta 8 consultas de listado (hoy + 7 días hacia
 atrás, solo si los días anteriores no traen resultados) y 1 consulta de detalle.
+Cada consulta puede reintentarse hasta 3 veces si la API responde HTTP 429.
 
 No imprime el ticket, la URL completa ni el JSON completo: solo estructura.
 """
 
 import re
 import sys
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -29,6 +31,9 @@ from src.sources.mercado_publico import (  # noqa: E402
 )
 
 MAX_DIAS_ATRAS = 7
+# Pausa entre la consulta de listado y la de detalle, para evitar el HTTP 429
+# "peticiones simultáneas" observado al consultar el detalle inmediatamente.
+PAUSA_ANTES_DE_DETALLE_SEGUNDOS = 3
 SEPARADOR = "=" * 40
 
 # Forma observada de los códigos de licitación (ej. "1509-5-L114", "2732-25-LE26").
@@ -188,7 +193,9 @@ def main() -> int:
     print(f"\n✓ Licitación de prueba encontrada: {codigo} (campo '{campo_codigo}')")
 
     # PASO 14: detalle de UNA licitación
-    print("\nConsultando detalle...")
+    print(f"\nEsperando {PAUSA_ANTES_DE_DETALLE_SEGUNDOS} s antes de consultar el detalle...")
+    time.sleep(PAUSA_ANTES_DE_DETALLE_SEGUNDOS)
+    print("Consultando detalle...")
     try:
         detalle = client.get_licitacion_by_code(codigo)
     except MercadoPublicoError as error:

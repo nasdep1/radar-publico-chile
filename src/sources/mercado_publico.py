@@ -6,13 +6,18 @@ estructura interna del JSON: devuelve el diccionario tal como llega.
 Ningún mensaje de error generado aquí incluye la URL ni el ticket.
 """
 
+import logging
+import time
 from datetime import date, datetime
 
 import requests
 
 from src import config
 
+logger = logging.getLogger(__name__)
+
 _BODY_SNIPPET_LENGTH = 300
+_HTTP_TOO_MANY_REQUESTS = 429
 
 
 class MercadoPublicoError(Exception):
@@ -79,13 +84,22 @@ def _http_status_hint(status_code: int) -> str:
 class MercadoPublicoClient:
     """Cliente HTTP para el endpoint de licitaciones de Mercado Público."""
 
-    def __init__(self, ticket=None, timeout=config.REQUEST_TIMEOUT, session=None):
+    def __init__(
+        self,
+        ticket=None,
+        timeout=config.REQUEST_TIMEOUT,
+        session=None,
+        retry_delays=config.RETRY_429_DELAYS,
+        sleep=time.sleep,
+    ):
         self._ticket = ticket if ticket is not None else config.get_mercadopublico_ticket()
         if not self._ticket:
             raise config.ConfigError(config.MISSING_TICKET_MESSAGE)
         self._timeout = timeout
         self._session = session if session is not None else requests.Session()
         self._url = config.MERCADOPUBLICO_LICITACIONES_URL
+        self._retry_delays = tuple(retry_delays)
+        self._sleep = sleep
 
     def __repr__(self) -> str:
         return f"MercadoPublicoClient(host={config.MERCADOPUBLICO_HOST!r})"
@@ -113,10 +127,28 @@ class MercadoPublicoClient:
     def _request(self, params: dict) -> dict:
         query = {**params, "ticket": self._ticket}
 
+        # Solo HTTP 429 se reintenta; cualquier otro código (incluidos 401, 403
+        # y demás 4xx/5xx) se informa de inmediato.
+        response = self._get(query)
+        for intento, espera in enumerate(self._retry_delays, start=1):
+            if response.status_code != _HTTP_TOO_MANY_REQUESTS:
+                break
+            logger.warning(
+                "Mercado Público respondió HTTP 429. Reintento %d/%d en %s s.",
+                intento,
+                len(self._retry_delays),
+                espera,
+            )
+            self._sleep(espera)
+            response = self._get(query)
+
+        return self._parse(response)
+
+    def _get(self, query: dict):
         # `from None` evita que la excepción original de requests (que puede
         # contener la URL completa con el ticket) aparezca en el traceback.
         try:
-            response = self._session.get(self._url, params=query, timeout=self._timeout)
+            return self._session.get(self._url, params=query, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise MercadoPublicoTimeoutError("Timeout consultando Mercado Público.") from None
         except requests.exceptions.ConnectionError:
@@ -127,6 +159,7 @@ class MercadoPublicoClient:
         except requests.exceptions.RequestException:
             raise MercadoPublicoError("Error de red consultando Mercado Público.") from None
 
+    def _parse(self, response) -> dict:
         body_snippet = self._sanitize(response.text[:_BODY_SNIPPET_LENGTH])
 
         if response.status_code != 200:

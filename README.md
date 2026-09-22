@@ -53,10 +53,13 @@ El script:
    retrocede de a un día, hasta 7 días como máximo;
 3. muestra solo la estructura del JSON (claves y cantidades, sin volcar datos);
 4. identifica el código de la primera licitación a partir de las claves reales;
-5. consulta el detalle de **una sola** licitación.
+5. espera 3 segundos (`PAUSA_ANTES_DE_DETALLE_SEGUNDOS` en el script) y consulta
+   el detalle de **una sola** licitación.
 
 Consumo máximo: 8 consultas de listado + 1 de detalle (el límite diario de la API
-es de 10.000 solicitudes por ticket). Termina con `INTEGRACIÓN MERCADO PÚBLICO: OK`
+es de 10.000 solicitudes por ticket). Si la API responde HTTP 429, el cliente
+reintenta esa misma consulta como máximo 3 veces, esperando 3, 6 y 12 segundos
+(`RETRY_429_DELAYS` en `src/config.py`). Ningún otro error se reintenta. Termina con `INTEGRACIÓN MERCADO PÚBLICO: OK`
 solo si todos los pasos se completan contra la API real.
 
 ## Tests
@@ -87,14 +90,24 @@ búsqueda libre por texto.
 
 ### Estructura real del JSON
 
-**Pendiente de verificar con la API real.** Una vez ejecutado el script con éxito,
-documentar aquí:
+**Listado por fecha**: observado el 22-09-2026 con `fecha=22092026`, que
+devolvió 780 licitaciones.
 
-- claves del JSON de listado;
-- claves relevantes de cada registro del listado;
-- estructura del JSON de detalle;
-- diferencias entre listado y detalle (el script imprime las claves que solo
-  aparecen en el detalle).
+- Claves de nivel superior: `Cantidad`, `FechaCreacion`, `Version`, `Listado`.
+- Claves de cada registro de `Listado`: `CodigoExterno`, `Nombre`,
+  `CodigoEstado`, `FechaCierre`.
+- El código de licitación está en `CodigoExterno` (ejemplo: `1019-102-LE26`).
+
+**Detalle por código**: **pendiente de verificar con la API real**. La primera
+consulta de detalle, hecha inmediatamente después del listado, respondió HTTP 429:
+
+```json
+{"Codigo":10500,"Mensaje":"Lo sentimos. Hemos detectado que existen peticiones simultáneas."}
+```
+
+Por eso se agregaron la pausa antes del detalle y los reintentos ante 429. Cuando
+el detalle responda correctamente, documentar aquí su estructura y sus diferencias
+con el listado (el script imprime las claves que solo aparecen en el detalle).
 
 No se define todavía un modelo de licitación ni un esquema de base de datos.
 

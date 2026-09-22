@@ -32,13 +32,17 @@ def make_response(status_code=200, json_data=None, text="", json_error=False):
     return response
 
 
-def make_client(response=None, side_effect=None):
+def make_client(response=None, side_effect=None, sleep=None):
     session = Mock()
     if side_effect is not None:
         session.get.side_effect = side_effect
     else:
         session.get.return_value = response
-    return MercadoPublicoClient(ticket=TEST_TICKET, timeout=5, session=session), session
+    # `sleep` simulado: los tests nunca esperan realmente.
+    client = MercadoPublicoClient(
+        ticket=TEST_TICKET, timeout=5, session=session, sleep=sleep or Mock()
+    )
+    return client, session
 
 
 def assert_sin_ticket(error):
@@ -164,6 +168,69 @@ def test_http_429_sugiere_rate_limit():
     with pytest.raises(MercadoPublicoHTTPError) as excinfo:
         client.get_active_licitaciones()
     assert "límite de solicitudes" in str(excinfo.value)
+
+
+# Reintentos ante HTTP 429
+
+BODY_429 = '{"Codigo":10500,"Mensaje":"Lo sentimos. Hemos detectado que existen peticiones simultáneas."}'
+
+
+def test_reintentos_429_por_defecto():
+    assert config.RETRY_429_DELAYS == (3, 6, 12)
+
+
+def test_429_reintenta_y_luego_exito():
+    sleep = Mock()
+    simulado = {"Cantidad": 1, "Listado": []}
+    client, session = make_client(
+        side_effect=[
+            make_response(status_code=429, text=BODY_429),
+            make_response(status_code=429, text=BODY_429),
+            make_response(json_data=simulado),
+        ],
+        sleep=sleep,
+    )
+    assert client.get_licitacion_by_code("1019-102-LE26") == simulado
+    assert session.get.call_count == 3
+    assert [c.args[0] for c in sleep.call_args_list] == [3, 6]
+    # Cada reintento repite la misma consulta, con el ticket incluido.
+    for call in session.get.call_args_list:
+        assert call.kwargs["params"] == {"codigo": "1019-102-LE26", "ticket": TEST_TICKET}
+
+
+def test_429_agota_reintentos():
+    sleep = Mock()
+    body = BODY_429[:-1] + f', "url": "{URL_CON_TICKET}"}}'
+    client, session = make_client(make_response(status_code=429, text=body), sleep=sleep)
+    with pytest.raises(MercadoPublicoHTTPError) as excinfo:
+        client.get_licitacion_by_code("1019-102-LE26")
+    assert session.get.call_count == 4  # 1 intento + 3 reintentos
+    assert [c.args[0] for c in sleep.call_args_list] == [3, 6, 12]
+    error = excinfo.value
+    assert error.status_code == 429
+    assert "10500" in error.body_snippet
+    assert TEST_TICKET not in str(error)
+    assert TEST_TICKET not in error.body_snippet
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 500, 503])
+def test_no_reintenta_otros_codigos(status_code):
+    sleep = Mock()
+    client, session = make_client(make_response(status_code=status_code), sleep=sleep)
+    with pytest.raises(MercadoPublicoHTTPError) as excinfo:
+        client.get_active_licitaciones()
+    assert excinfo.value.status_code == status_code
+    assert session.get.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_timeout_no_se_reintenta():
+    sleep = Mock()
+    client, session = make_client(side_effect=requests.exceptions.Timeout(URL_CON_TICKET), sleep=sleep)
+    with pytest.raises(MercadoPublicoTimeoutError):
+        client.get_active_licitaciones()
+    assert session.get.call_count == 1
+    sleep.assert_not_called()
 
 
 # 5. Manejo de JSON inválido
