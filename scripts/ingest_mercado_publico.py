@@ -118,7 +118,7 @@ def main(argv=None) -> int:
     print(f"\n{SEPARADOR}")
     print("RADAR PÚBLICO — INGESTA")
     print(SEPARADOR)
-    print(f"Fecha: {fecha_txt}")
+    print(f"Fecha: {fecha_txt} (guardada como query_date = {args.date.isoformat()})")
     if args.query:
         print(f"Consulta: {args.query}")
     print(f"\nLicitaciones encontradas: {len(listado.licitaciones)}")

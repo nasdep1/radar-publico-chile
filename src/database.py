@@ -28,6 +28,7 @@ LICITACIONES_COLUMNS = (
     "detalle_descargado",
     "fecha_captura",
     "fecha_actualizacion",
+    "query_date",
 )
 
 SCHEMA = """
@@ -51,9 +52,17 @@ CREATE TABLE IF NOT EXISTS licitaciones (
     raw_json            TEXT,
     detalle_descargado  INTEGER DEFAULT 0,
     fecha_captura       TEXT,
-    fecha_actualizacion TEXT
+    fecha_actualizacion TEXT,
+    query_date          TEXT NULL
 );
 """
+
+# Columnas agregadas después de la creación inicial de la tabla. Las bases
+# existentes se migran con ALTER TABLE solo si les falta la columna; los
+# registros previos quedan con NULL (no se inventa su valor).
+MIGRATION_COLUMNS = {
+    "query_date": "TEXT NULL",
+}
 
 
 def _normalize_sql(value):
@@ -79,5 +88,14 @@ def connect(db_path=None):
         conn.close()
 
 
+def table_columns(conn: sqlite3.Connection, table: str = "licitaciones") -> list:
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
+    """Crea la tabla si no existe y agrega las columnas nuevas que falten."""
     conn.executescript(SCHEMA)
+    existing = set(table_columns(conn))
+    for column, definition in MIGRATION_COLUMNS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE licitaciones ADD COLUMN {column} {definition}")

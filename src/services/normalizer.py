@@ -122,6 +122,33 @@ def extract_detail_record(response):
     return None
 
 
+def extract_items(items_json) -> list:
+    """Elementos de Items.Listado (estructura real: {"Cantidad", "Listado": [...]}).
+
+    Acepta el JSON guardado en `items_json` o el objeto ya decodificado.
+    """
+    if not items_json:
+        return []
+    try:
+        items = json.loads(items_json) if isinstance(items_json, str) else items_json
+    except ValueError:
+        return []
+    listado = items.get("Listado") if isinstance(items, dict) else None
+    if not isinstance(listado, list):
+        return []
+    return [item for item in listado if isinstance(item, dict)]
+
+
+def item_text_values(items, key) -> list:
+    """Valores de texto no vacíos de `key` en cada ítem (los números se convierten a texto)."""
+    values = []
+    for item in items:
+        value = _to_text(item.get(key))
+        if value is not None:
+            values.append(value)
+    return values
+
+
 # --- Normalizadores -----------------------------------------------------------
 
 def normalize_list_item(item):

@@ -1,7 +1,7 @@
 # Radar Público Chile
 
-**Etapa actual (2.1):** normalización, caché local en SQLite, filtrado de
-licitaciones candidatas de Mercado Público y reporte para evaluarlas a mano.
+**Etapa actual (2.2):** scoring contextual de relevancia evaluado contra un
+ground truth manual, y diagnóstico de la fecha usada en las consultas.
 
 ## Arquitectura actual
 
@@ -17,6 +17,10 @@ Detalle de candidatos     1 consulta por candidata SIN detalle en SQLite
 Normalización             src/services/normalizer.py
         ↓
 SQLite                    data/radar_publico.db (caché y auditoría)
+        ↓
+Scoring contextual        src/services/contextual_relevance.py (sin IA)
+        ↓
+Relevante / no relevante
 ```
 
 ### Por qué NO descargamos automáticamente todos los detalles
@@ -133,12 +137,13 @@ incluidos los contactos de los responsables que publica la API.
 ## Evaluación manual de candidatas
 
 ```bash
-python scripts/evaluate_candidates.py --query "seguridad municipal"
+python scripts/evaluate_candidates.py --query "seguridad municipal" --date 2026-09-22
 ```
 
 Lee **solo** la base SQLite local (no llama a Mercado Público) y genera
-`data/evaluacion_seguridad_municipal.csv` con las candidatas que ya tienen
-detalle. La selección usa exactamente el mismo filtro por Nombre y los mismos
+`data/evaluacion_seguridad_municipal_2026-09-22.csv` con las candidatas que ya
+tienen detalle y cuyo `query_date` es esa fecha (sin `--date`: todas las fechas,
+en `data/evaluacion_seguridad_municipal.csv`). La selección usa exactamente el mismo filtro por Nombre y los mismos
 términos que la ingesta (`src/services/query_terms.py`).
 
 El CSV incluye los datos principales de cada licitación y además:
@@ -152,6 +157,124 @@ El CSV incluye los datos principales de cada licitación y además:
 Está en UTF-8 con BOM, separado por comas, para que Excel y Numbers muestren bien
 las tildes. Si el CSV ya existe, el script no lo sobrescribe (podría tener
 evaluaciones manuales); usa `--sobrescribir` para reemplazarlo.
+
+## Relevancia contextual (Etapa 2.2)
+
+### Filtro de candidatos vs. scoring contextual
+
+- **Filtro de candidatos** (`candidate_filter.py`): barato y amplio. Busca
+  palabras sueltas en el Nombre del listado ("seguridad", "cámara"...) para
+  decidir de qué licitaciones vale la pena descargar el detalle. No se modificó.
+- **Scoring contextual** (`contextual_relevance.py`): trabaja solo sobre
+  licitaciones con detalle. Combina título, descripción, organismo comprador y
+  nombres, descripciones y categorías de los ítems para decidir si la
+  licitación trata realmente de *seguridad pública municipal*.
+
+Una palabra aislada no equivale al concepto: "cámara" puede ser sanitaria o
+médica, y "seguridad" puede ser hospitalaria, militar o informática.
+
+### Cómo puntúa
+
+- **Señales positivas**: seguridad pública/ciudadana, prevención del delito,
+  patrullaje comunitario/municipal/preventivo, televigilancia, lectores de
+  patentes, alarmas comunitarias. CCTV y "cámaras de seguridad" solo suman de
+  verdad con contexto municipal. Suma también un comprador que es una
+  **municipalidad** ("I. Municipalidad de...", "Municipalidad de..."); una
+  "Corporación Municipal" no cuenta como municipalidad.
+- **Señales negativas**: salud/medicina, saneamiento (cámaras de
+  alcantarillado), militar/penitenciario, ciberseguridad, instituciones no
+  municipales (tribunales, SII, IPS, Servicio Médico Legal, museos), guardias y
+  vigilancia de recintos, y comprador no municipal.
+- **Combinaciones**: cámaras + contexto municipal suma; guardias o cámaras +
+  hospital/institución/recinto resta.
+- Una coincidencia en el título pesa ×1,5, en descripción o ítems ×1 y en
+  categorías ×0,5. Cada señal cuenta una vez.
+- `score >= umbral` → relevante. Umbral por defecto: **6**.
+
+Señales, pesos, combinaciones, factores y umbral están en **un solo lugar**: el
+perfil `SEGURIDAD_MUNICIPAL` de `src/services/contextual_relevance.py`. Cada
+resultado incluye las señales que se activaron (término y campo) y una
+explicación. No hay reglas por código de licitación ni por municipio concreto
+(un test lo verifica).
+
+### Evaluación contra el ground truth
+
+```bash
+python scripts/evaluate_relevance.py --query "seguridad municipal"
+python scripts/evaluate_relevance.py --query "seguridad municipal" --threshold 5
+python scripts/evaluate_relevance.py --query "seguridad municipal" --mostrar-todo
+```
+
+Lee solo SQLite y `tests/data/ground_truth_seguridad_municipal.csv` (22
+candidatas del 22-09-2026 etiquetadas a mano). Muestra la matriz de confusión
+(TP, FP, TN, FN), Precision, Recall y F1, primero para el baseline (filtro por
+título) y luego para el scoring. Lista cada falso positivo y falso negativo con
+su score y sus señales. Positivo = verdaderamente relacionada con seguridad
+pública municipal.
+
+**Baseline** (filtro por título): 22 candidatas, 5 relevantes y 17 no
+relevantes → precisión 5/22 = **22,7 %**.
+
+**Resultados del scoring contextual**: *pendientes de la ejecución local*. El
+scorer se diseñó con reglas conceptuales, sin acceso a los textos reales de las
+22 licitaciones; las métricas reales se obtienen al ejecutar
+`evaluate_relevance.py` sobre la base local.
+
+### Limitaciones
+
+- **22 ejemplos no demuestran precisión general.** Sirven como conjunto de
+  calibración y evaluación inicial.
+- **Recall sobre 22 candidatas ≠ recall global.** Solo conocemos etiquetas de
+  las 22 candidatas que pasaron el filtro por título. Podemos medir precision y
+  recall del scorer *dentro* de ese conjunto, pero **no** cuántas licitaciones
+  relevantes de las ~850 del listado quedaron fuera del filtro inicial. No es
+  correcto afirmar que Radar encuentra el 100 % de las licitaciones relevantes.
+- El ground truth incluye procesos que pueden ser relicitaciones del mismo
+  proyecto (4063-9-LP26 y 4063-13-LP26), lo que puede inflar las métricas.
+
+### Deuda técnica
+
+- **Recall global**: etiquetar una muestra de licitaciones que NO pasaron el
+  filtro por título para estimar cuántas relevantes se pierden.
+- **Procesos relacionados / relicitaciones**: detectar llamados sucesivos del
+  mismo proyecto y agruparlos.
+- `query_date` guarda una sola fecha por licitación (la última consulta que la
+  devolvió); si la misma licitación aparece en consultas de varias fechas, se
+  conserva solo la más reciente.
+
+## Fechas: query_date, fecha_publicacion y fecha_captura
+
+| Columna | Significado |
+|---|---|
+| `query_date` | Fecha (YYYY-MM-DD) **enviada a Mercado Público** en la consulta de listado que devolvió el registro. Responde a "¿qué devolvió la API cuando consultamos esa fecha?". |
+| `fecha_publicacion` | `Fechas.FechaPublicacion` del detalle: cuándo se publicó el proceso. |
+| `fecha_captura` | Cuándo Radar guardó el registro por primera vez. |
+
+No son equivalentes: la consulta con `fecha=22092026` devolvió candidatas con
+`FechaPublicacion` de agosto y de septiembre. La semántica exacta del parámetro
+`fecha` **no está verificada**; para investigarla:
+
+```bash
+python scripts/diagnose_date_semantics.py --query-date 2026-09-22
+```
+
+No llama a la API. Para las licitaciones con detalle cuyo `query_date` es esa
+fecha, muestra CÓDIGO, FECHA CONSULTADA, FECHA PUBLICACION, FECHA CREACION,
+FECHA CIERRE y ESTADO; cuenta cuántas FechaPublicacion son iguales, anteriores
+o posteriores a la fecha consultada, con la mínima y la máxima, y hace lo mismo
+con FechaCreacion y FechaCierre. También compara la FechaCierre de todo el
+listado de esa consulta. `--incluir-sin-query-date` agrega los registros
+guardados antes de la migración.
+
+**Migración**: al abrir una base existente se agrega la columna `query_date`
+con `ALTER TABLE` solo si falta (verificado con `PRAGMA table_info`). La base no
+se borra y los registros previos quedan con `query_date` NULL: su valor no se
+inventa. Al volver a ejecutar la ingesta de una fecha, el listado asigna
+`query_date` a esas licitaciones, incluidas las que ya tienen detalle, sin
+volver a descargarlo.
+
+`evaluate_candidates.py --date YYYY-MM-DD` filtra por `query_date` (no por
+FechaPublicacion) y genera `data/evaluacion_<consulta>_<fecha>.csv`.
 
 ## Tests
 
@@ -173,11 +296,17 @@ src/services/candidate_filter.py            Filtro de candidatas por palabras cl
 src/services/ingestion.py                   Pasos de la ingesta: listado y detalle con caché.
 src/services/query_terms.py                 Términos de la consulta de prueba (compartidos).
 src/services/evaluation.py                  Reporte CSV de evaluación manual.
+src/services/contextual_relevance.py        Scoring contextual (perfil seguridad municipal).
+src/services/relevance_evaluation.py        Ground truth, matriz de confusión y métricas.
+src/services/date_diagnostics.py            Comparación de query_date con fechas del proceso.
 src/repositories/licitaciones_repository.py Acceso a SQLite (queries parametrizadas, sin ORM).
 scripts/test_mercado_publico_api.py         Prueba de integración de la Etapa 1.
 scripts/ingest_mercado_publico.py           Ingesta de prueba de la Etapa 2.
 scripts/evaluate_candidates.py              Reporte de evaluación (solo lee SQLite).
+scripts/evaluate_relevance.py               Métricas del scoring contra el ground truth.
+scripts/diagnose_date_semantics.py          Diagnóstico de la fecha consultada.
 tests/                                      Tests con mocks y SQLite temporal.
+tests/data/                                 Ground truth versionado.
 data/                                       Datos locales (no se versionan).
 ```
 
@@ -202,6 +331,7 @@ Tabla `licitaciones` (clave primaria `codigo_externo`):
 | `raw_json` | registro original completo, para auditoría |
 | `detalle_descargado` | 0 = solo listado, 1 = detalle descargado |
 | `fecha_captura`, `fecha_actualizacion` | primera inserción y última actualización (hora local ISO 8601) |
+| `query_date` | fecha enviada al endpoint de listado (YYYY-MM-DD); NULL en registros anteriores a la migración |
 
 Las fechas se guardan tal como llegan de la API.
 

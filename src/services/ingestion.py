@@ -29,7 +29,11 @@ class DetailResult:
 
 
 def fetch_listado(client, fecha) -> ListadoResult:
-    """Descarga y normaliza el listado diario (1 consulta a la API)."""
+    """Descarga y normaliza el listado diario (1 consulta a la API).
+
+    Cada registro lleva `query_date` = la fecha enviada al endpoint (YYYY-MM-DD),
+    que no es necesariamente su fecha de publicación.
+    """
     response = client.get_licitaciones_by_date(fecha)
     registros = extract_listado(response)
     result = ListadoResult(total_recibidas=len(registros), cantidad_reportada=response.get("Cantidad"))
@@ -40,6 +44,7 @@ def fetch_listado(client, fecha) -> ListadoResult:
             result.omitidas += 1
         elif normalized["codigo_externo"] not in vistos:
             vistos.add(normalized["codigo_externo"])
+            normalized["query_date"] = fecha.isoformat()
             result.licitaciones.append(normalized)
     return result
 

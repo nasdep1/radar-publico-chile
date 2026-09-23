@@ -5,11 +5,10 @@ La selección reproduce el filtro de la ingesta: los mismos términos
 """
 
 import csv
-import json
 import re
 
 from src.services.candidate_filter import filter_candidates
-from src.services.normalizer import normalize_text
+from src.services.normalizer import extract_items, item_text_values, normalize_text
 
 SEPARADOR_VALORES = " | "
 
@@ -33,38 +32,13 @@ CSV_COLUMNS = (
 )
 
 
-def extract_items(items_json) -> list:
-    """Elementos de Items.Listado (estructura real: {"Cantidad", "Listado": [...]})."""
-    if not items_json:
-        return []
-    try:
-        items = json.loads(items_json) if isinstance(items_json, str) else items_json
-    except ValueError:
-        return []
-    listado = items.get("Listado") if isinstance(items, dict) else None
-    if not isinstance(listado, list):
-        return []
-    return [item for item in listado if isinstance(item, dict)]
-
-
-def _text_values(items, key) -> list:
-    values = []
-    for item in items:
-        value = item.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            value = str(value)
-        if isinstance(value, str) and value.strip():
-            values.append(value.strip())
-    return values
-
-
 def summarize_items(items_json) -> dict:
     """Combina NombreProducto, Descripcion y Categoria (esta última sin duplicados)."""
     items = extract_items(items_json)
     return {
-        "items_nombres": SEPARADOR_VALORES.join(_text_values(items, "NombreProducto")),
-        "items_descripciones": SEPARADOR_VALORES.join(_text_values(items, "Descripcion")),
-        "categorias": SEPARADOR_VALORES.join(dict.fromkeys(_text_values(items, "Categoria"))),
+        "items_nombres": SEPARADOR_VALORES.join(item_text_values(items, "NombreProducto")),
+        "items_descripciones": SEPARADOR_VALORES.join(item_text_values(items, "Descripcion")),
+        "categorias": SEPARADOR_VALORES.join(dict.fromkeys(item_text_values(items, "Categoria"))),
     }
 
 
